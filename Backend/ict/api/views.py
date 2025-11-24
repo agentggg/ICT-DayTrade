@@ -91,71 +91,42 @@ def get_candles(request):
 
 @api_view(['POST'])
 def check_fvg(request):
-    """
-    Expect body like:
-    [
-      { "id": ..., "_open": ..., "high": ..., "low": ..., "close": ..., ... },
-      { ... },
-      { ... }
-    ]
-
-    or:
-    { "candles": [ {...}, {...}, {...} ] }
-    """
     candles = request.data.get("candles", request.data)
+    print(f"==>> candles: {candles}")
 
     if not isinstance(candles, list):
-        return Response(
-            {"detail": "Expected a list of 3 candles or {'candles': [...]}"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response({"detail": "Expected a list of 3 candles..."}, 400)
 
     if len(candles) != 3:
-        return Response(
-            {"detail": "FVG check requires exactly 3 candles."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response({"detail": "FVG check requires exactly 3 candles."}, 400)
 
     try:
         result = detect_fvg_from_array(candles)
     except Exception as e:
-        return Response(
-            {"detail": f"Error while checking FVG: {str(e)}"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return Response({"detail": f"Error: {str(e)}"}, 400)
 
     if result is None:
-        return Response(
-            {
-                "is_fvg": False,
-                "type": None,
-                "gap_high": None,
-                "gap_low": None,
-            }
-        )
+        return Response({
+            "is_fvg": False,
+            "type": None,
+            "gap_high": None,
+            "gap_low": None,
+        })
 
-    return Response(
-        {
-            "is_fvg": True,
-            "type": result["type"],       # 'bullish' or 'bearish'
-            "gap_high": result["gap_high"],
-            "gap_low": result["gap_low"],
-        }
-    )
-
+    return Response({
+        "is_fvg": True,
+        "type": result["type"],
+        "gap_high": result["gap_high"],
+        "gap_low": result["gap_low"],
+    })
+    
+# views.py
 @api_view(["POST"])
 def check_order_block(request):
-    """
-    Accepts a list of candles (e.g. 13) and returns any detected order blocks.
-    Request payload:
-      { "direction": "bullish"|"bearish", "candles": [...], "require_displacement": true, "min_body_ratio": 0.2 }
-    Response:
-      { "ok": bool, "matches": [ {ob_index, trigger_index, ob, trigger, direction}, ... ], "reason": optional }
-    """
     direction = request.data.get("direction")
     candles = request.data.get("candles", [])
     require_displacement = request.data.get("require_displacement", True)
-    min_body_ratio = request.data.get("min_body_ratio", 0.20)
+    min_body_ratio = request.data.get("min_body_ratio", 0.45)
 
     if not isinstance(candles, list) or len(candles) < 2:
         return Response({"ok": False, "matches": [], "reason": "need at least 2 candles"})
@@ -168,12 +139,49 @@ def check_order_block(request):
         direction=direction,
         require_displacement=require_displacement,
         min_body_ratio=min_body_ratio,
+        # you can tune these:
+        mss_lookback=3,
+        ob_lookback=4,
+        min_ob_body=0.25,
     )
 
     if not matches:
         return Response({"ok": False, "matches": [], "reason": "no order block found"})
 
     return Response({"ok": True, "matches": matches})
+
+@api_view(["POST"])
+def check_manual_ob(request):
+    """
+    Body:
+      {
+        "candles": [ {time, open, high, low, close}, ... ]   // exactly 7
+      }
+
+    Response:
+      {
+        "ok": bool,
+        "is_ob": bool,
+        "direction": "bullish"|"bearish"|null,
+        "prev_direction": "bullish"|"bearish"|"none",
+        "reason": "text"
+      }
+    """
+    candles = request.data.get("candles", [])
+
+    if not isinstance(candles, list) or len(candles) < 5:
+        return Response(
+            {
+                "ok": False,
+                "is_ob": False,
+                "direction": None,
+                "prev_direction": "none",
+                "reason": "need at least 5 candles (expected ~7)",
+            }
+        )
+
+    result = confirm_manual_ob(candles)
+    return Response(result)  
 
 @api_view(["POST"])
 def check_breaker_block(request):

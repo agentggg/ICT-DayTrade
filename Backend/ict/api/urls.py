@@ -9,4 +9,4 @@ urlpatterns = [
     path('check_order_block/', check_order_block, name='check_order_block'),
     path('check_breaker_block/', check_breaker_block, name='check_breaker_block'),
 ]
-    
+     
